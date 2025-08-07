@@ -1,0 +1,232 @@
+// Utility Functions
+function getImageUrl(pictureElement) {
+    const sources = pictureElement.querySelectorAll('source');
+    if (sources.length > 0) {
+        for (let source of sources) {
+            if (source.srcset) {
+                return source.srcset.split(' ')[0];
+            }
+        }
+    }
+    const img = pictureElement.querySelector('img');
+    return img ? img.src : '';
+}
+
+async function checkImageSize(url) {
+    try {
+        const response = await fetch(url, { method: 'HEAD' });
+        const contentLength = response.headers.get('Content-Length');
+        return contentLength ? parseInt(contentLength) < 300000 : true;
+    } catch (e) {
+        console.warn(`Couldn't check size for ${url}:`, e);
+        return false;
+    }
+}
+
+function closeOverlay() {
+    const closeButton = document.querySelector('button.gb-modal__close');
+    if (closeButton) closeButton.click();
+}
+
+// Process Rooms
+async function processRooms() {
+    const rooms = [];
+    const roomItems = document.querySelectorAll('li.rooms__item');
+    
+    for (const room of roomItems) {
+        const button = room.querySelector('button.rooms__button');
+        if (!button) continue;
+        
+        button.click();
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        const roomName = document.querySelector('h2.room__title')?.textContent.trim() || 'Room';
+        const roomImg = document.querySelector('figure.room__media picture');
+        const floorPlan = document.querySelector('picture:not(figure.room__media picture)');
+        
+        const roomImgUrl = roomImg ? getImageUrl(roomImg) : '';
+        const floorPlanUrl = floorPlan ? getImageUrl(floorPlan) : '';
+        
+        const validImages = [];
+        if (roomImgUrl && await checkImageSize(roomImgUrl)) validImages.push(roomImgUrl);
+        if (floorPlanUrl && await checkImageSize(floorPlanUrl)) validImages.push(floorPlanUrl);
+        
+        if (validImages.length > 0) {
+            rooms.push({
+                type: 'room',
+                name: roomName,
+                images: validImages
+            });
+        }
+        
+        closeOverlay();
+        await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    
+    return rooms;
+}
+
+// Process Deck Plans
+async function processDeckPlans() {
+    const decks = [];
+    const deckTabs = document.querySelectorAll('li.deck__tab');
+    
+    for (const tab of deckTabs) {
+        const button = tab.querySelector('button.deck__button');
+        if (!button) continue;
+        
+        const deckName = button.textContent.trim();
+        button.click();
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        const activePane = document.querySelector('li.deck__pane.is-active');
+        const img = activePane?.querySelector('img.deck__image');
+        
+        if (img?.src && await checkImageSize(img.src)) {
+            decks.push({
+                type: 'deck',
+                name: deckName,
+                images: [img.src]
+            });
+        }
+    }
+    
+    return decks;
+}
+
+// Process Gallery with Pagination
+async function processGallery() {
+    const galleries = [];
+    const gallery = document.getElementById('tabbed-gallery');
+    if (!gallery) return galleries;
+
+    const tabs = gallery.querySelectorAll('li.t-slideshow__tab');
+    
+    for (const tab of tabs) {
+        const button = tab.querySelector('button.t-slideshow__button');
+        if (!button) continue;
+        
+        const tabName = button.textContent.trim();
+        const images = [];
+        
+        // Activate the tab if not active
+        if (!button.classList.contains('is-active')) {
+            button.click();
+            await new Promise(resolve => setTimeout(resolve, 1500));
+        }
+        
+        // Find the corresponding pane
+        const paneId = button.getAttribute('aria-controls');
+        const pane = document.getElementById(paneId);
+        if (!pane) continue;
+        
+        // Get all thumbnails
+        const thumbnails = pane.querySelectorAll('.slideshow__thumbnail');
+        
+        // Click through each thumbnail to activate the slide
+        for (let i = 0; i < thumbnails.length; i++) {
+            const thumbnail = thumbnails[i];
+            const thumbButton = thumbnail.querySelector('button');
+            if (!thumbButton) continue;
+            
+            // Click the thumbnail
+            thumbButton.click();
+            await new Promise(resolve => setTimeout(resolve, 800)); // Wait for slide to load
+            
+            // Get the active slide
+            const activeSlide = pane.querySelector('.slideshow__slide.is-active');
+            if (!activeSlide) continue;
+            
+            // Get the picture element
+            const picture = activeSlide.querySelector('picture');
+            if (!picture) continue;
+            
+            // Get all possible image URLs
+            const urls = [];
+            picture.querySelectorAll('source').forEach(source => {
+                if (source.srcset) {
+                    source.srcset.split(',').forEach(part => {
+                        const url = part.trim().split(' ')[0];
+                        if (url) urls.push(url);
+                    });
+                }
+            });
+            
+            // Add the img src
+            const img = picture.querySelector('img');
+            if (img?.src) urls.push(img.src);
+            
+            // Find the best quality image under 300KB
+            for (const url of [...new Set(urls)]) {
+                if (await checkImageSize(url)) {
+                    if (!images.includes(url)) {
+                        images.push(url);
+                    }
+                    break; // Take the first (largest) valid image
+                }
+            }
+        }
+        
+        if (images.length > 0) {
+            galleries.push({
+                type: 'gallery',
+                name: tabName,
+                images: images
+            });
+            console.log(`Found ${images.length} images in "${tabName}" tab`);
+        }
+    }
+    
+    return galleries;
+}
+
+// Main Function with extended TSV columns
+async function main() {
+    console.log('Processing rooms...');
+    const rooms = await processRooms();
+    
+    console.log('Processing deck plans...');
+    const decks = await processDeckPlans();
+    
+    console.log('Processing gallery...');
+    const galleries = await processGallery();
+    
+    // Combine all data
+    const allData = [...rooms, ...decks, ...galleries];
+    
+    // Generate TSV with 25 image columns
+    let tsv = 'Type\tName';
+    for (let i = 1; i <= 25; i++) {
+        tsv += `\timg${i}`;
+    }
+    tsv += '\n';
+    
+    allData.forEach(item => {
+        tsv += `${item.type}\t${item.name}`;
+        for (let i = 0; i < 25; i++) {
+            tsv += `\t${item.images[i] || ''}`;
+        }
+        tsv += '\n';
+    });
+    
+    console.log('\n=== Results ===\n');
+    console.log(tsv);
+    
+    // Copy to clipboard
+    const textarea = document.createElement('textarea');
+    textarea.value = tsv;
+    document.body.appendChild(textarea);
+    textarea.select();
+    
+    try {
+        document.execCommand('copy');
+        console.log('\nTSV data copied to clipboard!');
+    } catch (err) {
+        console.log('\nCould not copy to clipboard. Please copy manually from above.');
+    } finally {
+        document.body.removeChild(textarea);
+    }
+}
+
+// Run the script
+main().catch(console.error);
