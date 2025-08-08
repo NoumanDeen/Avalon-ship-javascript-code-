@@ -1,7 +1,16 @@
 // Utility Functions
-function getImageUrl(pictureElement) {
+function getImageUrl(pictureElement, targetWidth = null) {
     const sources = pictureElement.querySelectorAll('source');
     if (sources.length > 0) {
+        // If target width is specified, try to find exact match first
+        if (targetWidth) {
+            for (let source of sources) {
+                if (source.srcset && source.srcset.includes(`t=w${targetWidth}`)) {
+                    return source.srcset.split(' ')[0];
+                }
+            }
+        }
+        // Otherwise return the first available source
         for (let source of sources) {
             if (source.srcset) {
                 return source.srcset.split(' ')[0];
@@ -28,7 +37,7 @@ function closeOverlay() {
     if (closeButton) closeButton.click();
 }
 
-// Process Rooms
+// Process Rooms - Updated to target specific elements and widths
 async function processRooms() {
     const rooms = [];
     const roomItems = document.querySelectorAll('li.rooms__item');
@@ -41,11 +50,14 @@ async function processRooms() {
         await new Promise(resolve => setTimeout(resolve, 1000));
         
         const roomName = document.querySelector('h2.room__title')?.textContent.trim() || 'Room';
+        
+        // Get room image from figure.room__media (default width)
         const roomImg = document.querySelector('figure.room__media picture');
-        const floorPlan = document.querySelector('picture:not(figure.room__media picture)');
+        // Get floor plan from div.room__middle with specific width (850)
+        const floorPlan = document.querySelector('div.room__middle picture');
         
         const roomImgUrl = roomImg ? getImageUrl(roomImg) : '';
-        const floorPlanUrl = floorPlan ? getImageUrl(floorPlan) : '';
+        const floorPlanUrl = floorPlan ? getImageUrl(floorPlan, 850) : '';
         
         const validImages = [];
         if (roomImgUrl && await checkImageSize(roomImgUrl)) validImages.push(roomImgUrl);
@@ -94,7 +106,7 @@ async function processDeckPlans() {
     return decks;
 }
 
-// Process Gallery with Pagination
+// Process Gallery with specific width (1000)
 async function processGallery() {
     const galleries = [];
     const gallery = document.getElementById('tabbed-gallery');
@@ -141,28 +153,12 @@ async function processGallery() {
             const picture = activeSlide.querySelector('picture');
             if (!picture) continue;
             
-            // Get all possible image URLs
-            const urls = [];
-            picture.querySelectorAll('source').forEach(source => {
-                if (source.srcset) {
-                    source.srcset.split(',').forEach(part => {
-                        const url = part.trim().split(' ')[0];
-                        if (url) urls.push(url);
-                    });
-                }
-            });
+            // Get image URL with target width of 1000
+            const imageUrl = getImageUrl(picture, 1000);
             
-            // Add the img src
-            const img = picture.querySelector('img');
-            if (img?.src) urls.push(img.src);
-            
-            // Find the best quality image under 300KB
-            for (const url of [...new Set(urls)]) {
-                if (await checkImageSize(url)) {
-                    if (!images.includes(url)) {
-                        images.push(url);
-                    }
-                    break; // Take the first (largest) valid image
+            if (imageUrl && await checkImageSize(imageUrl)) {
+                if (!images.includes(imageUrl)) {
+                    images.push(imageUrl);
                 }
             }
         }
